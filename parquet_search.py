@@ -82,25 +82,9 @@ def main():
     start = time.time()
     # Run query that selects part of the data
     query = con.execute("""
-        SELECT ts, td, sa, da, ipkt, ibyt, opkt, obyt
+        SELECT date, hour, ts, td, sa, da, ibyt+obyt as tot_byt, ipkt, ibyt, opkt, obyt
         FROM nfdump
-        ORDER BY ibyt DESC
-        LIMIT 10
-        """)
-    results = query.fetchdf()
-    duration = time.time() - start
-    columns, rows = os.get_terminal_size(0)
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', columns):  # more options can be specified also
-        pp.pprint(results)
-    print(f"Executing took {duration} seconds")
-
-    print('\n10 biggest flows (obyt)')
-    start = time.time()
-    # Run query that selects part of the data
-    query = con.execute("""
-        SELECT ts, td, sa, da, ipkt, ibyt, opkt, obyt
-        FROM nfdump
-        ORDER BY obyt DESC
+        ORDER BY tot_byt DESC
         LIMIT 10
         """)
     results = query.fetchdf()
