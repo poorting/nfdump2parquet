@@ -115,15 +115,15 @@ Fire it up from the parquet base directory and create a view of the parquet file
 CREATE VIEW nfdump AS SELECT * FROM '*/*/*.parquet';
 DESCRIBE nfdump;
 ```
+You can use this view exactly as you would a regular table. For example to find the 10 largest flows 
+(in number of bytes, input and output combined) you would use:
+```
+SELECT ts,te,td,sa,sp,da,dp, ibyt+obyt AS tot_byt FROM nfdump ORDER BY tot_byt DESC LIMIT 10;
+ ```
 
 If you want to know how long an operation takes you can enable the timer in duckdb with `.timer ON`.
 
 For longer operations you can enable a progress bar with `PRAGMA enable_progress_bar;` 
 (disable it with `PRAGMA disable_progress_bar;`)
 
-You can use this view exactly as you would a regular table. For example to find the 10 largest flows 
-(in number of bytes, input and output combined) you would use:
-```
-SELECT ts,te,td,sa,sp,da,dp, ibyt+obyt AS tot_byt FROM nfdump ORDER BY tot_byt DESC LIMIT 10;
- ```
 
