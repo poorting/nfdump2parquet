@@ -123,7 +123,7 @@ class Nfdump2Parquet:
                     try:
                         table = table.drop(self.drop_columns)
                     except KeyError as ke:
-                        print(ke)
+                        logger.error(ke)
 
                     trunc_ts = self.__trunc_datetime(table.column('te'))
                     table = table.append_column('date', [trunc_ts['date']])
@@ -277,7 +277,7 @@ def parser_add_arguments():
 
 # ------------------------------------------------------------------------------
 def list_files(directory, recursive=False):
-    filelist=[]
+    filelist = []
     if not os.path.isdir(directory):
         return filelist
 

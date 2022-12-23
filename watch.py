@@ -36,9 +36,9 @@ class Handler(RegexMatchingEventHandler):
         logger.debug(f'Received moved event - {event.dest_path}')
         self.__convert(event.dest_path)
 
-    def on_created(self, event):
-        logger.debug(f'Received created event - {event.src_path}')
-        self.__convert(event.src_path)
+    # def on_created(self, event):
+    #     logger.debug(f'Received created event - {event.src_path}')
+    #     self.__convert(event.src_path)
 
 
 ###############################################################################
