@@ -18,7 +18,7 @@ program_name = os.path.basename(__file__)
 VERSION = 0.1
 logger = logging.getLogger(__name__)
 
-pattern = "nfcapd.\d{12}"
+pattern = "nfcapd\.\d{12}"
 
 
 ###############################################################################
