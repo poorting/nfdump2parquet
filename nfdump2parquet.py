@@ -39,8 +39,9 @@ class Nfdump2Parquet:
 
     # The default fields that should be carried over to the parquet file
     # Can be overridden by providing a parquet_fields=[] to the constructor
+    # exid == exporter id
     parquet_fields = ['ts', 'te', 'td', 'sa', 'da', 'sp', 'dp', 'pr', 'flg',
-                      'ipkt', 'ibyt', 'opkt', 'obyt', ]
+                      'ipkt', 'ibyt', 'opkt', 'obyt', 'exid']
 
     mem_table = None
 
