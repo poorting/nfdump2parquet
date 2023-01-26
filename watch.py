@@ -21,15 +21,16 @@ logger = logging.getLogger('nfdump2parquet')
 # class Handler(PatternMatchingEventHandler):
 class Handler(RegexMatchingEventHandler):
 
-    def __init__(self, dest_dir, hives=True):
+    def __init__(self, dest_dir, hives=True, flowsrc=''):
         super().__init__(regexes=['.*/nfcapd.\d{12}'],
                          ignore_directories=True)
         self.dest_dir = dest_dir
         self.hives = hives
+        self.flowsrc = flowsrc
 
     def __convert(self, source_file):
         logger.info(f"Converting {source_file}")
-        nf2pqt = Nfdump2Parquet(source_file, self.dest_dir, hives=self.hives)
+        nf2pqt = Nfdump2Parquet(source_file, self.dest_dir, hives=self.hives, flowsrc=self.flowsrc)
         nf2pqt.convert()
 
     def on_moved(self, event):
@@ -45,16 +46,17 @@ class Handler(RegexMatchingEventHandler):
 class Watcher:
     dir_to_watch = ''
 
-    def __init__(self, watchdir, dest_dir, hives=True, recursive=True):
+    def __init__(self, watchdir, dest_dir, hives=True, recursive=True, flowsrc=''):
         self.dir_to_watch = watchdir
         self.dest_dir = dest_dir
         self.hives = hives
         self.recursive = recursive
+        self.flowsrc = flowsrc
         self.observer = Observer(watchdir, recursive)
         logger.info(f'Watching directory {watchdir}, recursive={recursive}, hives partitioning={hives}')
 
     def run(self):
-        event_handler = Handler(self.dest_dir, hives=self.hives)
+        event_handler = Handler(self.dest_dir, hives=self.hives, flowsrc=self.flowsrc)
         self.observer.schedule(event_handler, self.dir_to_watch, recursive=self.recursive)
         self.observer.start()
         try:
@@ -166,6 +168,15 @@ def parser_add_arguments():
                         action="store",
                         )
 
+    parser.add_argument("-f",
+                        metavar='flowsrc',
+                        help=textwrap.dedent('''\
+                        Additional flowsrc name stored in the flowsrc column
+                        '''),
+                        action="store",
+                        default=''
+                        )
+
     parser.add_argument("-n", "--nohives",
                         help="Disables hive partitioning in output parquet directory",
                         action="store_true")
@@ -191,7 +202,7 @@ def main():
     args = parser.parse_args()
     logger = get_logger(args)
 
-    w = Watcher(args.basedir, args.parquetdir, hives=not args.nohives)
+    w = Watcher(args.basedir, args.parquetdir, hives=not args.nohives, flowsrc=args.f)
     w.run()
 
 

@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 import os
 import sys
+import shutil
 import time
 import logging
 import pprint
@@ -41,17 +42,17 @@ class Nfdump2Parquet:
     # Can be overridden by providing a parquet_fields=[] to the constructor
     # exid == exporter id
     parquet_fields = ['ts', 'te', 'td', 'sa', 'da', 'sp', 'dp', 'pr', 'flg',
-                      'ipkt', 'ibyt', 'opkt', 'obyt', 'exid']
+                      'ipkt', 'ibyt', 'opkt', 'obyt', 'dir', 'ra', 'exid']
 
     mem_table = None
 
     # ------------------------------------------------------------------------------
     def __init__(self, source_file: str, destination_dir: str, hives: bool = True, parquet_fields: list[str] = None,
-                 nfdump_fields: list[str] = None):
+                 nfdump_fields: list[str] = None, flowsrc = ''):
         """Initialises Nfdump2Parquet instance.
 
         Provide nfdump_fields parameter **only** if defaults don't work
-        Defaults for parquet_fields: ts, te, td, sa, da, sp, dp, pr, flg, ipkt, ibyt, opkt, obyt
+        Defaults for parquet_fields: ts, te, td, sa, da, sp, dp, pr, flg, ipkt, ibyt, opkt, obyt, dir, ra, exid
 
         :param source_file: name of the nfcapd file to convert
         :param destination_dir: directory for storing resulting parquet file
@@ -64,6 +65,7 @@ class Nfdump2Parquet:
         self.basename = os.path.basename(self.src_file)[-12:]
         self.dst_dir = destination_dir
         self.hives = hives
+        self.flowsrc = flowsrc
 
         if parquet_fields:
             self.parquet_fields = parquet_fields
@@ -95,8 +97,15 @@ class Nfdump2Parquet:
     def convert(self):
         start = time.time()
 
+        # Create a temp file for the intermediate CSV
         tmp_file, tmp_filename = tempfile.mkstemp()
         os.close(tmp_file)
+
+        # Create a temporary directory for writing parquet files in
+        # first, before ultimately copying to the destination
+        # This avoids errors querying parquet files while they
+        # are being written as much as possible
+        tmp_dirname = tempfile.mkdtemp()
 
         try:
             with open(tmp_filename, 'a', encoding='utf-8') as f:
@@ -129,12 +138,14 @@ class Nfdump2Parquet:
                     trunc_ts = self.__trunc_datetime(table.column('te'))
                     table = table.append_column('date', [trunc_ts['date']])
                     table = table.append_column('hour', [trunc_ts['hour']])
+                    table = table.append_column('flowsrc', [[self.flowsrc] * table.column('te').length()])
 
                     basename_template = f'{self.basename}-chunk-{chunk_nr}' + '-part-{i}.parquet'
 
                     if self.hives:
                         ds.write_dataset(data=table,
-                                         base_dir=self.dst_dir,
+                                         # base_dir=self.dst_dir,
+                                         base_dir=tmp_dirname,
                                          basename_template=basename_template,
                                          format='parquet',
                                          partitioning=['date', 'hour'],
@@ -145,7 +156,8 @@ class Nfdump2Parquet:
                                          )
                     else:
                         ds.write_dataset(data=table,
-                                         base_dir=self.dst_dir,
+                                         # base_dir=self.dst_dir,
+                                         base_dir=tmp_dirname,
                                          basename_template=basename_template,
                                          format='parquet',
                                          max_partitions=4096,
@@ -158,9 +170,15 @@ class Nfdump2Parquet:
         duration = time.time() - start
         logger.debug(f"CSV to Parquet in {duration:.2f}s")
 
+        # Now copy the results to its final destination
+        logger.debug(f"Copying results from temp directory to {self.dst_dir}")
+        shutil.copytree(tmp_dirname, self.dst_dir, dirs_exist_ok=True)
+
+        logger.debug(f"Removing temporary files and directories")
         # Remove temporary file
-        # empty = open(self.tmp_filename, 'w', encoding='utf-8')
         os.remove(tmp_filename)
+        # Remove temporary directory
+        shutil.rmtree(tmp_dirname, ignore_errors=True)
 
 
 ###############################################################################
@@ -256,6 +274,15 @@ def parser_add_arguments():
                         action="store",
                         )
 
+    parser.add_argument("-f",
+                        metavar='flowsrc',
+                        help=textwrap.dedent('''\
+                        Additional flowsrc name stored in the flowsrc column
+                        '''),
+                        action="store",
+                        default=''
+                        )
+
     parser.add_argument("-n", "--nohives",
                         help="Disables hive partitioning (date=YYYYin output parquet directory",
                         action="store_true")
@@ -319,7 +346,7 @@ def main():
     for filename in filelist:
         logger.info(f'converting {filename}')
         try:
-            nr2pqt = Nfdump2Parquet(filename, args.parquetdir, hives=not args.nohives)
+            nr2pqt = Nfdump2Parquet(filename, args.parquetdir, hives=not args.nohives, flowsrc=args.f)
             nr2pqt.convert()
         except FileNotFoundError as fnf:
             logger.error(f'File not found: {fnf}')
