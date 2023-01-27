@@ -285,10 +285,15 @@ def main():
         hourlist = sorted(list_dirs(directory+datedir, 'hour='))
         date_hour_dict[datedir] = hourlist
 
+    overall_start = time.time()
+
     # Now go through everything and coalesce each directory.
     # The list of original parquet files is deleted after coalescing
     for datedir, hours in date_hour_dict.items():
         for hourdir in hours:
+
+            start = time.time()
+
             coalesce_dir = f'{directory}{datedir}/{hourdir}/'
             files = sorted(list_files(coalesce_dir, '\d{12}.*\.parquet'))
             nr_of_files = len(files)
@@ -314,6 +319,12 @@ def main():
                 if dest_exists:
                     # Rename temp file back to standard name
                     os.rename(coal_dest, coal_file)
+
+                duration = time.time() - start
+                logger.debug(f" this took {duration:.2f}s")
+
+    duration = time.time() - overall_start
+    logger.info(f"Coalescing took {duration:.2f}s")
 
 
 ###############################################################################
