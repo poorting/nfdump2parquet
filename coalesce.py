@@ -178,8 +178,10 @@ def parser_add_arguments():
                         Coalesce nfdump parquet files in a hive partitioned directory
                         (e.g. "date=2022-11-12/hour=22/"). All parquet files in each
                         "hour" directory will be combined into one parquet file.
-                        The directory for the current date is ignored, only 
+                        The directory for the current date is ignored, by default only 
                         directories for yesterday and earlier will be coalesced.
+                        If a date is specified with -b only directories before
+                        that date will be coalesced
                         
                         The original parquet files WILL.BE.DELETED!
                         
@@ -189,6 +191,14 @@ def parser_add_arguments():
     parser.add_argument("basedir",
                         help=textwrap.dedent('''\
                         Base directory containing (hive partitioned) parquet files
+                        '''),
+                        action="store",
+                        )
+
+    parser.add_argument("-b",
+                        metavar='YYYY-MM-DD',
+                        help=textwrap.dedent('''\
+                        Coalesce all files before this date (default is current date)
                         '''),
                         action="store",
                         )
@@ -256,10 +266,18 @@ def main():
     datelist = sorted(list_dirs(directory, 'date='))
     now = datetime.now()
     datenow = now.strftime('%Y-%m-%d')
-    logger.info(f'Current date is {datenow}')
-    # Only coalesce parquet files before today:
-    # drop the current date from the list of directories
-    datelist = [date for date in datelist if not date.endswith(datenow)]
+
+    if args.b:
+        try:
+            datetry = datetime.strptime(args.b, "%Y-%m-%d").date()
+            datenow = args.b
+        except ValueError as ve:
+            logger.error(f'Specified date ({args.b}) is invalid!')
+            exit(1)
+    logger.info(f'Directories *before* {datenow} will be coalesced')
+
+    # Only coalesce parquet files before today or the specified date:
+    datelist = [date for date in datelist if date[-10:] < datenow]
     logger.debug(datelist)
 
     date_hour_dict = {}
@@ -278,9 +296,24 @@ def main():
             if files:
                 datestr = datedir.split('=')[-1]
                 hourstr = hourdir.split('=')[-1]
-                coalesce_parquets(files, coalesce_dir+f'{datestr}-{hourstr}:00.parquet')
+                coal_file = coalesce_dir+f'{datestr}-{hourstr}:00.parquet'
+                # Check if coalesced output already exists
+                dest_exists = False
+                if os.path.isfile(coal_file):
+                    # It does! Add it to the list
+                    # and combine it with other parquet files
+                    files.append(coal_file)
+                    dest_exists = True
+                    # Output to temp file first.
+                    coal_dest = coalesce_dir+f'{datestr}-{hourstr}:01.parquet'
+                else:
+                    coal_dest = coal_file+f'{datestr}-{hourstr}:00.parquet'
+                coalesce_parquets(files, coal_dest)
                 for parquet_file in files:
                     os.remove(parquet_file)
+                if dest_exists:
+                    # Rename temp file back to standard name
+                    os.rename(coal_dest, coal_file)
 
 
 ###############################################################################
