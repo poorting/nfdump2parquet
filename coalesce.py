@@ -11,11 +11,13 @@ and modified for its intended purpose
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import pprint
 import argparse
 import textwrap
 import time
+import tempfile
 from datetime import datetime
 import logging
 import re
@@ -294,6 +296,10 @@ def main():
 
             start = time.time()
 
+            # Create a temp file for the combined files
+            tmp_file, tmp_filename = tempfile.mkstemp()
+            os.close(tmp_file)
+
             coalesce_dir = f'{directory}{datedir}/{hourdir}/'
             files = sorted(list_files(coalesce_dir, '\d{12}.*\.parquet'))
             nr_of_files = len(files)
@@ -302,23 +308,19 @@ def main():
                 datestr = datedir.split('=')[-1]
                 hourstr = hourdir.split('=')[-1]
                 coal_file = coalesce_dir+f'{datestr}-{hourstr}:00.parquet'
-                # Check if coalesced output already exists
-                dest_exists = False
+                # Check if coalesced output already exists and add it to the list
                 if os.path.isfile(coal_file):
-                    # It does! Add it to the list
-                    # and combine it with other parquet files
                     files.append(coal_file)
-                    dest_exists = True
-                    # Output to temp file first.
-                    coal_dest = coalesce_dir+f'{datestr}-{hourstr}:01.parquet'
-                else:
-                    coal_dest = coal_file+f'{datestr}-{hourstr}:00.parquet'
-                coalesce_parquets(files, coal_dest)
+
+                coalesce_parquets(files, tmp_filename)
+                # Remove the original files
                 for parquet_file in files:
                     os.remove(parquet_file)
-                if dest_exists:
-                    # Rename temp file back to standard name
-                    os.rename(coal_dest, coal_file)
+                if os.path.isfile(coal_file):
+                    os.remove(coal_file)
+
+                # And move the temp file to the destination
+                shutil.move(tmp_filename, coal_file)
 
                 duration = time.time() - start
                 logger.debug(f" this took {duration:.2f}s")
