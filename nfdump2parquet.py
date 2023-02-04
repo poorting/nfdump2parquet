@@ -179,13 +179,13 @@ class Nfdump2Parquet:
             logger.error(e)
 
         duration = time.time() - start
-        logger.debug(f"CSV to Parquet in {duration:.2f}s")
+        logger.debug(f"{sf} CSV to Parquet in {duration:.2f}s")
 
         # Now copy the results to its final destination
-        logger.debug(f"Copying results from temp directory to {self.dst_dir}")
+        logger.debug(f"{sf}  Copying results from temp directory to {self.dst_dir}")
         shutil.copytree(tmp_dirname, self.dst_dir, dirs_exist_ok=True)
 
-        logger.debug(f"Removing temporary files and directories")
+        logger.debug(f"{sf} Removing temporary files and directories")
         # Remove temporary file
         os.remove(tmp_filename)
         # Remove temporary directory
@@ -276,11 +276,11 @@ def parser_add_arguments():
     parser.add_argument("-p",
                         metavar='processes',
                         help=textwrap.dedent('''\
-                        Number of processes to use for conversion (default 1)
+                        Number of processes to use for conversion (default 2)
                         '''),
                         action="store",
                         type=int,
-                        default=1
+                        default=2
                         )
 
     parser.add_argument("-n", "--nohives",
