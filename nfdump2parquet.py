@@ -10,16 +10,28 @@ import textwrap
 import tempfile
 import subprocess
 import re
+from logging.handlers import QueueHandler
 
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.csv
+from multiprocessing import Process, Queue
+from multiprocessing.pool import Pool
 
 program_name = os.path.basename(__file__)
-VERSION = 0.1
-logger = logging.getLogger(__name__)
+VERSION = 0.2
+# logger = logging.getLogger(__name__)
 
 pattern = "nfcapd\.\d{12}"
+
+global g_destination_dir
+global g_hives
+global g_parquet_fields
+global g_nfdump_fields
+global g_flowsrc
+global logger
+# global g_loglevel
+# global g_queue
 
 
 ###############################################################################
@@ -75,8 +87,7 @@ class Nfdump2Parquet:
         self.drop_columns = [a for a in self.nf_fields if a not in self.parquet_fields]
 
     # ------------------------------------------------------------------------------
-    @staticmethod
-    def __trunc_datetime(datetime_column: pyarrow.ChunkedArray):
+    def __trunc_datetime(self, datetime_column: pyarrow.ChunkedArray):
 
         trunc_date = []
         trunc_hour = []
@@ -228,27 +239,6 @@ class CustomConsoleFormatter(logging.Formatter):
 
 ###############################################################################
 # Subroutines
-def get_logger(args):
-    logger = logging.getLogger(__name__)
-
-    # Create handlers
-    console_handler = logging.StreamHandler()
-    #    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    formatter = CustomConsoleFormatter()
-    console_handler.setFormatter(formatter)
-
-    logger.setLevel(logging.INFO)
-
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-
-    # add handlers to the logger
-    logger.addHandler(console_handler)
-
-    return logger
-
-
-# ------------------------------------------------------------------------------
 def parser_add_arguments():
     """
         Parse command line parameters
@@ -281,6 +271,16 @@ def parser_add_arguments():
                         '''),
                         action="store",
                         default=''
+                        )
+
+    parser.add_argument("-p",
+                        metavar='processes',
+                        help=textwrap.dedent('''\
+                        Number of processes to use for conversion (default 1)
+                        '''),
+                        action="store",
+                        type=int,
+                        default=1
                         )
 
     parser.add_argument("-n", "--nohives",
@@ -323,6 +323,73 @@ def list_files(directory, recursive=False):
     return filelist
 
 
+# ------------------------------------------------------------------------------
+def init_process(destination_dir: str, hives: bool = True, parquet_fields: list[str] = None,
+                 nfdump_fields: list[str] = None, flowsrc: str = '', loglevel=logging.INFO, queue=None):
+
+    global g_destination_dir
+    global g_hives
+    global g_parquet_fields
+    global g_nfdump_fields
+    global g_flowsrc
+    global logger
+
+    g_destination_dir = destination_dir
+    g_hives = hives
+    g_parquet_fields = parquet_fields
+    g_nfdump_fields = nfdump_fields
+    g_flowsrc = flowsrc
+    logger = get_logger(queue, loglevel)
+
+
+# ------------------------------------------------------------------------------
+def convert(filename: str):
+    logger.info(f'converting {filename}')
+    try:
+        nr2pqt = Nfdump2Parquet(filename, g_destination_dir, hives=g_hives, flowsrc=g_flowsrc)
+        nr2pqt.convert()
+    except FileNotFoundError as fnf:
+        logger.error(f'File not found: {fnf}')
+
+
+# ------------------------------------------------------------------------------
+# executed in a process that performs logging
+def logger_process(queue, loglevel):
+    # create a logger
+    logger = logging.getLogger(program_name)
+    # configure a stream handler
+    handler = logging.StreamHandler()
+    formatter = CustomConsoleFormatter()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    # log all messages, debug and up
+    logger.setLevel(loglevel)
+    # run forever
+    while True:
+        try:
+            # consume a log message, block until one arrives
+            message = queue.get()
+            # check for shutdown
+            if message is None:
+                break
+            # log the message
+            logger.handle(message)
+        except Exception:
+            import sys, traceback
+            print('Whoops! Problem:', file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+
+
+# ------------------------------------------------------------------------------
+def get_logger(queue, loglevel):
+
+    logger = logging.getLogger(program_name)
+    logger.addHandler(QueueHandler(queue))
+    logger.setLevel(loglevel)
+    return logger
+
+
 ###############################################################################
 def main():
 
@@ -330,8 +397,17 @@ def main():
     parser = parser_add_arguments()
     args = parser.parse_args()
 
-    logger = get_logger(args)
+    loglevel = logging.INFO
+    if args.debug:
+        loglevel = logging.DEBUG
+    # create the shared queue
+    queue = Queue(-1)
 
+    # start the logger process
+    logger_p = Process(target=logger_process, args=(queue, loglevel,))
+    logger_p.start()
+
+    init_process(args.parquetdir, hives=not args.nohives, flowsrc=args.f, loglevel=loglevel, queue=queue)
     filelist = []
     filename = args.source
 
@@ -343,14 +419,13 @@ def main():
     filelist = sorted(filelist)
     # pp.pprint(filelist)
 
-    for filename in filelist:
-        logger.info(f'converting {filename}')
-        try:
-            nr2pqt = Nfdump2Parquet(filename, args.parquetdir, hives=not args.nohives, flowsrc=args.f)
-            nr2pqt.convert()
-        except FileNotFoundError as fnf:
-            logger.error(f'File not found: {fnf}')
-            exit(2)
+    pool = Pool(args.p)
+
+    pool.map(convert, filelist)
+
+    # shutdown the queue correctly
+    queue.put(None)
+    logger_p.join()
 
 
 ###############################################################################
