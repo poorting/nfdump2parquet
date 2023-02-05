@@ -506,15 +506,26 @@ def main():
     loglevel = logging.INFO
     if args.debug:
         loglevel = logging.DEBUG
-    # create the shared queue
-    queue = Manager().Queue(-1)
+    # # create the shared queue
+    # queue = Manager().Queue(-1)
+    #
+    # # start the logger process
+    # logger_p = Process(target=logger_process, args=(queue, loglevel,))
+    # logger_p.start()
+    #
+    # logger = logging.getLogger(program_name)
+    # logger.addHandler(QueueHandler(queue))
+    # logger.setLevel(loglevel)
 
-    # start the logger process
-    logger_p = Process(target=logger_process, args=(queue, loglevel,))
-    logger_p.start()
-
+    # create a logger
     logger = logging.getLogger(program_name)
-    logger.addHandler(QueueHandler(queue))
+    # configure a stream handler
+    handler = logging.StreamHandler()
+    formatter = CustomConsoleFormatter()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    # log all messages, debug and up
     logger.setLevel(loglevel)
 
     # init_process(args.parquetdir, hives=not args.nohives, flowsrc=args.f, loglevel=loglevel, queue=queue)
@@ -530,27 +541,32 @@ def main():
     # pp.pprint(filelist)
 
     # pool = Pool(args.p, maxtasksperchild=1,)
-    pool = Pool(args.p,)
+    # pool = Pool(args.p,)
 
     # pool.map(convert, filelist)
 
     for filename in filelist:
-        keywords = {
-            'src_file': filename,
-            'dst_dir': args.parquetdir,
-            'hives': not args.nohives,
-            'flowsrc': args.f,
-            'queue': queue,
-            'loglevel': loglevel,
-        }
-        pa = pool.apply_async(convert, kwds=keywords, callback=conversion_completed, error_callback=conversion_error)
+        convert(filename, args.parquetdir,
+                hives=not args.nohives,
+                flowsrc=args.f,
+                loglevel=loglevel
+                )
+        # keywords = {
+        #     'src_file': filename,
+        #     'dst_dir': args.parquetdir,
+        #     'hives': not args.nohives,
+        #     'flowsrc': args.f,
+        #     'queue': queue,
+        #     'loglevel': loglevel,
+        # }
+        # pa = pool.apply_async(convert, kwds=keywords, callback=conversion_completed, error_callback=conversion_error)
     logger.info('Submitting conversion jobs finished, waiting for conversions to complete')
-    pool.close()
-    pool.join()
+    # pool.close()
+    # pool.join()
 
     # shutdown the queue correctly
-    queue.put(None)
-    logger_p.join()
+    # queue.put(None)
+    # logger_p.join()
 
 
 ###############################################################################
