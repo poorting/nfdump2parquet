@@ -335,6 +335,17 @@ def __trunc_datetime(datetime_column: pyarrow.ChunkedArray):
 
 
 # ------------------------------------------------------------------------------
+def convert1(args_dict):
+    convert(args_dict['src_file'],
+            args_dict['dst_dir'],
+            args_dict['hives'],
+            args_dict['flowsrc'],
+            args_dict['queue'],
+            args_dict['loglevel'],
+            )
+
+
+# ------------------------------------------------------------------------------
 def convert(src_file: str, dst_dir: str, hives: bool = True, flowsrc = '', queue=None, loglevel=logging.INFO):
 
     # Max size of chunk to read at a time, just short of 2GB (the max)
@@ -507,26 +518,26 @@ def main():
     if args.debug:
         loglevel = logging.DEBUG
     # # create the shared queue
-    # queue = Manager().Queue(-1)
-    #
-    # # start the logger process
-    # logger_p = Process(target=logger_process, args=(queue, loglevel,))
-    # logger_p.start()
-    #
-    # logger = logging.getLogger(program_name)
-    # logger.addHandler(QueueHandler(queue))
-    # logger.setLevel(loglevel)
+    queue = Manager().Queue(-1)
 
-    # create a logger
+    # start the logger process
+    logger_p = Process(target=logger_process, args=(queue, loglevel,))
+    logger_p.start()
+
     logger = logging.getLogger(program_name)
-    # configure a stream handler
-    handler = logging.StreamHandler()
-    formatter = CustomConsoleFormatter()
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    # log all messages, debug and up
+    logger.addHandler(QueueHandler(queue))
     logger.setLevel(loglevel)
+
+    # # create a logger
+    # logger = logging.getLogger(program_name)
+    # # configure a stream handler
+    # handler = logging.StreamHandler()
+    # formatter = CustomConsoleFormatter()
+    # handler.setFormatter(formatter)
+    # logger.addHandler(handler)
+    #
+    # # log all messages, debug and up
+    # logger.setLevel(loglevel)
 
     # init_process(args.parquetdir, hives=not args.nohives, flowsrc=args.f, loglevel=loglevel, queue=queue)
     filelist = []
@@ -541,32 +552,48 @@ def main():
     # pp.pprint(filelist)
 
     # pool = Pool(args.p, maxtasksperchild=1,)
-    # pool = Pool(args.p,)
+    pool = Pool(args.p,)
 
     # pool.map(convert, filelist)
 
+    kwargs_arr = []
     for filename in filelist:
-        convert(filename, args.parquetdir,
-                hives=not args.nohives,
-                flowsrc=args.f,
-                loglevel=loglevel
-                )
-        # keywords = {
-        #     'src_file': filename,
-        #     'dst_dir': args.parquetdir,
-        #     'hives': not args.nohives,
-        #     'flowsrc': args.f,
-        #     'queue': queue,
-        #     'loglevel': loglevel,
-        # }
-        # pa = pool.apply_async(convert, kwds=keywords, callback=conversion_completed, error_callback=conversion_error)
-    logger.info('Submitting conversion jobs finished, waiting for conversions to complete')
-    # pool.close()
-    # pool.join()
+        keywords = {
+            'src_file': filename,
+            'dst_dir': args.parquetdir,
+            'hives': not args.nohives,
+            'flowsrc': args.f,
+            'queue': queue,
+            'loglevel': loglevel,
+        }
+        kwargs_arr.append(keywords)
 
+    logger.debug("Firing off all conversions")
+    pool.map(convert1, kwargs_arr)
+    # for filename in filelist:
+    #     convert(filename, args.parquetdir,
+    #             hives=not args.nohives,
+    #             flowsrc=args.f,
+    #             loglevel=loglevel
+    #             )
+    #     # keywords = {
+    #     #     'src_file': filename,
+    #     #     'dst_dir': args.parquetdir,
+    #     #     'hives': not args.nohives,
+    #     #     'flowsrc': args.f,
+    #     #     'queue': queue,
+    #     #     'loglevel': loglevel,
+    #     # }
+    #     # pa = pool.apply_async(convert, kwds=keywords, callback=conversion_completed, error_callback=conversion_error)
+    # logger.info('Submitting conversion jobs finished, waiting for conversions to complete')
+    logger.debug("All conversions finished, calling close & join")
+    pool.close()
+    pool.join()
+
+    logger.debug("Shutting down the Queue and logging process")
     # shutdown the queue correctly
-    # queue.put(None)
-    # logger_p.join()
+    queue.put(None)
+    logger_p.join()
 
 
 ###############################################################################
