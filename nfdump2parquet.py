@@ -60,7 +60,7 @@ class Nfdump2Parquet:
 
     # ------------------------------------------------------------------------------
     def __init__(self, source_file: str, destination_dir: str, hives: bool = True, parquet_fields: list[str] = None,
-                 nfdump_fields: list[str] = None, flowsrc = ''):
+                 nfdump_fields: list[str] = None, flowsrc = '', logger=logging.getLogger()):
         """Initialises Nfdump2Parquet instance.
 
         Provide nfdump_fields parameter **only** if defaults don't work
@@ -78,6 +78,7 @@ class Nfdump2Parquet:
         self.dst_dir = destination_dir
         self.hives = hives
         self.flowsrc = flowsrc
+        self.logger = logger
 
         if parquet_fields:
             self.parquet_fields = parquet_fields
@@ -122,12 +123,12 @@ class Nfdump2Parquet:
             with open(tmp_filename, 'a', encoding='utf-8') as f:
                 subprocess.run(['nfdump', '-r', self.src_file, '-o', 'csv', '-q'], stdout=f)
         except Exception as e:
-            logger.error(f'Error reading {self.src_file} : {e}')
+            self.logger.error(f'Error reading {self.src_file} : {e}')
             return
 
         duration = time.time() - start
         sf = os.path.basename(self.src_file)
-        logger.debug(f"{sf} to CSV in {duration:.2f}s")
+        self.logger.debug(f"{sf} to CSV in {duration:.2f}s")
         start = time.time()
         try:
             with pyarrow.csv.open_csv(input_file=tmp_filename,
@@ -144,7 +145,7 @@ class Nfdump2Parquet:
                     try:
                         table = table.drop(self.drop_columns)
                     except KeyError as ke:
-                        logger.error(ke)
+                        self.logger.error(ke)
 
                     trunc_ts = self.__trunc_datetime(table.column('te'))
                     table = table.append_column('date', [trunc_ts['date']])
@@ -176,16 +177,16 @@ class Nfdump2Parquet:
                                          existing_data_behavior='overwrite_or_ignore',
                                          )
         except pyarrow.lib.ArrowInvalid as e:
-            logger.error(e)
+            self.logger.error(e)
 
         duration = time.time() - start
-        logger.debug(f"{sf} CSV to Parquet in {duration:.2f}s")
+        self.logger.debug(f"{sf} CSV to Parquet in {duration:.2f}s")
 
         # Now copy the results to its final destination
-        logger.debug(f"{sf}  Copying results from temp directory to {self.dst_dir}")
+        self.logger.debug(f"{sf} Copying results from temp directory to {self.dst_dir}")
         shutil.copytree(tmp_dirname, self.dst_dir, dirs_exist_ok=True)
 
-        logger.debug(f"{sf} Removing temporary files and directories")
+        self.logger.debug(f"{sf} Removing temporary files and directories")
         # Remove temporary file
         os.remove(tmp_filename)
         # Remove temporary directory
@@ -346,7 +347,7 @@ def init_process(destination_dir: str, hives: bool = True, parquet_fields: list[
 def convert(filename: str):
     logger.info(f'converting {filename}')
     try:
-        nr2pqt = Nfdump2Parquet(filename, g_destination_dir, hives=g_hives, flowsrc=g_flowsrc)
+        nr2pqt = Nfdump2Parquet(filename, g_destination_dir, hives=g_hives, flowsrc=g_flowsrc, logger=logger)
         nr2pqt.convert()
     except FileNotFoundError as fnf:
         logger.error(f'File not found: {fnf}')
@@ -419,9 +420,12 @@ def main():
     filelist = sorted(filelist)
     # pp.pprint(filelist)
 
-    pool = Pool(args.p)
+    pool = Pool(args.p, maxtasksperchild=1)
 
     pool.map(convert, filelist)
+    logger.info('Converting finished')
+    pool.close()
+    pool.join()
 
     # shutdown the queue correctly
     queue.put(None)
