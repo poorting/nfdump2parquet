@@ -430,8 +430,8 @@ def convert(src_file: str, dst_dir: str, hives: bool = True, flowsrc = '', queue
                 basename_template = f'{basename}-chunk-{chunk_nr}' + '-part-{i}.parquet'
 
                 if not pqwriter:
-                    hivedir=f'{dst_dir}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
-                    logger.info(f'{hivedir}')
+                    hivedir=f'{tmp_dirname}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
+                    # logger.info(f'{hivedir}')
                     os.makedirs(hivedir, exist_ok=True)
                     pqwriter = pq.ParquetWriter(f'{hivedir}/{basename}.parquet', table.schema)
 
