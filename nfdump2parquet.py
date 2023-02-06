@@ -15,6 +15,8 @@ from logging.handlers import QueueHandler
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.csv
+import pyarrow.parquet as pq
+
 from multiprocessing import Process, Manager
 from multiprocessing.pool import Pool
 
@@ -348,8 +350,8 @@ def convert1(args_dict):
 # ------------------------------------------------------------------------------
 def convert(src_file: str, dst_dir: str, hives: bool = True, flowsrc = '', queue=None, loglevel=logging.INFO):
 
-    # Max size of chunk to read at a time, just short of 2GB (the max)
-    block_size = 2047 * 1024 * 1024
+    # Max size of chunk to read at a time
+    block_size = 2 * 1024 * 1024
 
     # The default fields (order) present in the nfcapd files
     # Can be overridden by providing an nfdump_fields=[] to the constructor
@@ -401,6 +403,8 @@ def convert(src_file: str, dst_dir: str, hives: bool = True, flowsrc = '', queue
 
     logger.debug(f"{sf} to CSV in {duration:.2f}s")
     start = time.time()
+    pqwriter = None
+
     try:
         with pyarrow.csv.open_csv(input_file=tmp_filename,
                                   read_options=pyarrow.csv.ReadOptions(
@@ -418,37 +422,48 @@ def convert(src_file: str, dst_dir: str, hives: bool = True, flowsrc = '', queue
                 except KeyError as ke:
                     logger.error(ke)
 
-                trunc_ts = __trunc_datetime(table.column('te'))
-                table = table.append_column('date', [trunc_ts['date']])
-                table = table.append_column('hour', [trunc_ts['hour']])
+                # trunc_ts = __trunc_datetime(table.column('te'))
+                # table = table.append_column('date', [trunc_ts['date']])
+                # table = table.append_column('hour', [trunc_ts['hour']])
                 table = table.append_column('flowsrc', [[flowsrc] * table.column('te').length()])
 
                 basename_template = f'{basename}-chunk-{chunk_nr}' + '-part-{i}.parquet'
 
-                if hives:
-                    ds.write_dataset(data=table,
-                                     # base_dir=self.dst_dir,
-                                     base_dir=tmp_dirname,
-                                     basename_template=basename_template,
-                                     format='parquet',
-                                     partitioning=['date', 'hour'],
-                                     partitioning_flavor='hive',
-                                     max_partitions=4096,
-                                     max_open_files=4096,
-                                     existing_data_behavior='overwrite_or_ignore',
-                                     )
-                else:
-                    ds.write_dataset(data=table,
-                                     # base_dir=self.dst_dir,
-                                     base_dir=tmp_dirname,
-                                     basename_template=basename_template,
-                                     format='parquet',
-                                     max_partitions=4096,
-                                     max_open_files=4096,
-                                     existing_data_behavior='overwrite_or_ignore',
-                                     )
+                if not pqwriter:
+                    hivedir=f'{dst_dir}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
+                    logger.info(f'{hivedir}')
+                    os.makedirs(hivedir, exist_ok=True)
+                    pqwriter = pq.ParquetWriter(f'{hivedir}/{basename}.parquet', table.schema)
+
+                pqwriter.write_table(table)
+
+                # if hives:
+                #     ds.write_dataset(data=table,
+                #                      # base_dir=self.dst_dir,
+                #                      base_dir=tmp_dirname,
+                #                      basename_template=basename_template,
+                #                      format='parquet',
+                #                      partitioning=['date', 'hour'],
+                #                      partitioning_flavor='hive',
+                #                      max_partitions=4096,
+                #                      max_open_files=4096,
+                #                      existing_data_behavior='overwrite_or_ignore',
+                #                      )
+                # else:
+                #     ds.write_dataset(data=table,
+                #                      # base_dir=self.dst_dir,
+                #                      base_dir=tmp_dirname,
+                #                      basename_template=basename_template,
+                #                      format='parquet',
+                #                      max_partitions=4096,
+                #                      max_open_files=4096,
+                #                      existing_data_behavior='overwrite_or_ignore',
+                #                      )
     except pyarrow.lib.ArrowInvalid as e:
         logger.error(e)
+
+    if pqwriter:
+        pqwriter.close()
 
     duration = time.time() - start
     logger.debug(f"{sf} CSV to Parquet in {duration:.2f}s")
@@ -585,7 +600,6 @@ def main():
     #     #     'loglevel': loglevel,
     #     # }
     #     # pa = pool.apply_async(convert, kwds=keywords, callback=conversion_completed, error_callback=conversion_error)
-    # logger.info('Submitting conversion jobs finished, waiting for conversions to complete')
     logger.debug("All conversions finished, calling close & join")
     pool.close()
     pool.join()
