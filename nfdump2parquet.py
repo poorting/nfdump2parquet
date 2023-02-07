@@ -152,7 +152,7 @@ def list_files(directory, recursive=False):
 
 
 # ------------------------------------------------------------------------------
-def convert1(args_dict):
+def convert_process(args_dict):
     convert(args_dict['src_file'],
             args_dict['dst_dir'],
             args_dict['flowsrc'],
@@ -345,7 +345,7 @@ def main():
         kwargs_arr.append(keywords)
 
     logger.debug("Firing off all conversions")
-    pool.map(convert1, kwargs_arr)
+    pool.map(convert_process, kwargs_arr)
 
     logger.debug("All conversions finished, calling close & join")
     pool.close()
