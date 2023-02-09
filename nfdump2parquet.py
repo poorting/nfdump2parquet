@@ -167,6 +167,10 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
     # Max size of chunk to read at a time
     block_size = 2 * 1024 * 1024
 
+    info_return = {
+        'src': src_file,
+    }
+
     # The default fields (order) present in the nfcapd files
     # Can be overridden by providing an nfdump_fields=[] to the constructor
     nf_fields = ['ts', 'te', 'td', 'sa', 'da', 'sp', 'dp', 'pr', 'flg',
@@ -218,6 +222,7 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
     hivedir=f'{dst_dir}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
     os.makedirs(hivedir, exist_ok=True)
 
+    info_return['toCSV'] = duration
     logger.debug(f"{sf} to CSV in {duration:.2f}s")
     start = time.time()
     pqwriter = None
@@ -241,10 +246,9 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
 
                 table = table.append_column('flowsrc', [[flowsrc] * table.column('te').length()])
 
-                basename_template = f'{basename}-chunk-{chunk_nr}' + '-part-{i}.parquet'
-
                 if not pqwriter:
                     pqwriter = pq.ParquetWriter(f'{hivedir}/{basename}.parquet', table.schema)
+                    info_return['dst'] = f'{hivedir}/{basename}.parquet'
 
                 pqwriter.write_table(table)
 
@@ -255,6 +259,7 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
         pqwriter.close()
 
     duration = time.time() - start
+    info_return['toParquet'] = duration
     logger.debug(f"{sf} CSV to Parquet in {duration:.2f}s")
 
     # Now copy the results to its final destination
@@ -268,7 +273,7 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
     # Remove temporary directory
     shutil.rmtree(tmp_dirname, ignore_errors=True)
 
-    return sf
+    return info_return
 
 
 # ------------------------------------------------------------------------------

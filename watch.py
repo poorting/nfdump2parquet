@@ -33,8 +33,10 @@ class Handler(RegexMatchingEventHandler):
         self.flowsrc = flowsrc
         self.pool = Pool(1)
 
+
     def completed_callback(self, result):
-        logger.info(f"Completed: {result}")
+        logger.info(f"Completed: {result['src']}")
+
 
     def error_callback(self, error):
         logger.error(f"Error: {error}")
