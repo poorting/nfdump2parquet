@@ -1,16 +1,15 @@
 #! /usr/bin/env python3
 import os
 import sys
-import threading
 import time
 import pprint
 import logging
 import argparse
 import textwrap
+import signal
 
 from watchdog.observers import Observer
 from watchdog.events import RegexMatchingEventHandler
-from multiprocessing import Process
 from multiprocessing.pool import Pool
 
 from nfdump2parquet import convert
@@ -19,19 +18,21 @@ program_name = os.path.basename(__file__)
 VERSION = 0.1
 logger = logging.getLogger(program_name)
 
+sig_received = False
+
 
 ###############################################################################
 # class Handler(PatternMatchingEventHandler):
 class Handler(RegexMatchingEventHandler):
 
-    def __init__(self, dest_dir, flowsrc=''):
+    def __init__(self, dest_dir, pool, flowsrc=''):
         super().__init__(regexes=['.*/nfcapd.\d{12}'],
                          ignore_directories=True)
         # super().__init__(regexes=['.*'],
         #                  ignore_directories=True)
         self.dest_dir = dest_dir
         self.flowsrc = flowsrc
-        self.pool = Pool(10)
+        self.pool = pool
 
 
     def completed_callback(self, result):
@@ -58,32 +59,6 @@ class Handler(RegexMatchingEventHandler):
     def on_created(self, event):
         logger.debug(f'Received created event - {event.src_path}')
         self.__convert(event.src_path)
-
-
-###############################################################################
-class Watcher:
-    dir_to_watch = ''
-
-    def __init__(self, watchdir, dest_dir, recursive=True, flowsrc=''):
-        self.dir_to_watch = watchdir
-        self.dest_dir = dest_dir
-        self.recursive = recursive
-        self.flowsrc = flowsrc
-        self.observer = Observer(watchdir, recursive)
-        logger.info(f'Watching directory {watchdir}, recursive={recursive}')
-
-    def run(self):
-        event_handler = Handler(self.dest_dir, flowsrc=self.flowsrc)
-        self.observer.schedule(event_handler, self.dir_to_watch, recursive=self.recursive)
-        self.observer.start()
-        try:
-            while True:
-                time.sleep(1)
-        except Exception as e:
-            self.observer.stop()
-            print(f"Error {e}")
-
-        self.observer.join()
 
 
 ###############################################################################
@@ -204,16 +179,45 @@ def parser_add_arguments():
     return parser
 
 
+# ------------------------------------------------------------------------------
+def init_worker():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+
 ###############################################################################
 def main():
+
+    def signal_handler(signum, frame):
+        global sig_received
+        sig_received = True
+        signame = signal.Signals(signum).name
+        logger.info(f'Signal {signame} received. Exiting gracefully.')
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     pp = pprint.PrettyPrinter(indent=4)
 
     parser = parser_add_arguments()
     args = parser.parse_args()
     logger = get_logger(args)
 
-    w = Watcher(args.basedir, args.parquetdir, flowsrc=args.f)
-    w.run()
+    pool = Pool(2, init_worker)
+    event_handler = Handler(args.parquetdir, pool, flowsrc=args.f)
+    observer = Observer()
+    observer.schedule(event_handler, args.basedir, recursive=True)
+    observer.start()
+    try:
+        while not sig_received:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Ctrl+C Pressed")
+    finally:
+        observer.stop()
+        observer.join()
+        pool.close()
+        pool.join()
 
 
 ###############################################################################
