@@ -17,7 +17,7 @@ from nfdump2parquet import convert
 
 program_name = os.path.basename(__file__)
 VERSION = 0.1
-logger = logging.getLogger('nfdump2parquet')
+logger = logging.getLogger(program_name)
 
 
 ###############################################################################
@@ -31,11 +31,11 @@ class Handler(RegexMatchingEventHandler):
         #                  ignore_directories=True)
         self.dest_dir = dest_dir
         self.flowsrc = flowsrc
-        self.pool = Pool(1)
+        self.pool = Pool(10)
 
 
     def completed_callback(self, result):
-        logger.info(f"Completed: {result['src']}")
+        logger.info(f"Completed: {result['src']} in {result['toCSV']+result['toParquet']:.2f} seconds")
 
 
     def error_callback(self, error):
@@ -46,14 +46,10 @@ class Handler(RegexMatchingEventHandler):
     #     self.pool.apply_async()
 
     def __convert(self, source_file):
+        logger.info(f"Converting {source_file}")
         self.pool.apply_async(convert, args=(source_file, self.dest_dir, self.flowsrc),
                               callback=self.completed_callback,
                               error_callback=self.error_callback)
-        # p = Process(target=Handler.__proc_convert, args=(source_file, self.dest_dir, self.flowsrc,))
-        # p.start()
-
-        # nf2pqt = Nfdump2Parquet(source_file, self.dest_dir, hives=self.hives, flowsrc=self.flowsrc)
-        # nf2pqt.convert()
 
     def on_moved(self, event):
         logger.debug(f'Received moved event - {event.dest_path}')
@@ -77,7 +73,6 @@ class Watcher:
         logger.info(f'Watching directory {watchdir}, recursive={recursive}')
 
     def run(self):
-        print(f"Watcher.run {threading.current_thread().name}")
         event_handler = Handler(self.dest_dir, flowsrc=self.flowsrc)
         self.observer.schedule(event_handler, self.dir_to_watch, recursive=self.recursive)
         self.observer.start()
@@ -139,7 +134,7 @@ class CustomConsoleFormatter(logging.Formatter):
 ###############################################################################
 # Subroutines
 def get_logger(args):
-    logger = logging.getLogger('nfdump2parquet')
+    logger = logging.getLogger(program_name)
 
     # Create handlers
     console_handler = logging.StreamHandler()
@@ -217,7 +212,6 @@ def main():
     args = parser.parse_args()
     logger = get_logger(args)
 
-    print(f"Program start {threading.current_thread().name}")
     w = Watcher(args.basedir, args.parquetdir, flowsrc=args.f)
     w.run()
 
