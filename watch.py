@@ -34,10 +34,8 @@ class Handler(RegexMatchingEventHandler):
         self.flowsrc = flowsrc
         self.pool = pool
 
-
     def completed_callback(self, result):
         logger.info(f"Completed: {result['src']} in {result['toCSV']+result['toParquet']:.2f} seconds")
-
 
     def error_callback(self, error):
         logger.error(f"Error: {error}")
@@ -59,6 +57,21 @@ class Handler(RegexMatchingEventHandler):
     def on_created(self, event):
         logger.debug(f'Received created event - {event.src_path}')
         self.__convert(event.src_path)
+
+    # For some reasons the watcher fails after a length of time with
+    # TypeError: expected str, bytes or os.PathLike object, not NoneType
+    # In Handler.dispatch(event) (watchdog/events.py:476 in dispatch)
+    #  paths.append(os.fsdecode(event.dest_path))
+    # overriding method to catch this exception and logging it...
+    def dispatch(self, event):
+        pp = pprint.PrettyPrinter(indent=4)
+        try:
+            logger.debug(event)
+            super().dispatch(event)
+        except TypeError as te:
+            logger.error('TypeError on dispatch event')
+            logger.error(te)
+            logger.error(event)
 
 
 ###############################################################################
@@ -109,13 +122,20 @@ class CustomConsoleFormatter(logging.Formatter):
 ###############################################################################
 # Subroutines
 def get_logger(args):
+    # logging.basicConfig(level=logging.DEBUG,
+    #                     format='%(asctime)s %(name)-20s %(levelname)-8s %(message)s',
+    #                     datefmt='%m-%d %H:%M',
+    #                     filename='watch.log',
+    #                     filemode='w')
     logger = logging.getLogger(program_name)
 
     # Create handlers
     console_handler = logging.StreamHandler()
-    #    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    formatter = CustomConsoleFormatter()
-    console_handler.setFormatter(formatter)
+    console_formatter = CustomConsoleFormatter()
+    console_handler.setFormatter(console_formatter)
+    file_handler = logging.FileHandler(filename='watch.log')
+    file_formatter = logging.Formatter('%(asctime)s  %(levelname)-5s %(filename)-10s %(lineno)d %(funcName)-20s %(message)s')
+    file_handler.setFormatter(file_formatter)
 
     logger.setLevel(logging.INFO)
 
@@ -124,6 +144,7 @@ def get_logger(args):
 
     # add handlers to the logger
     logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
 
     return logger
 
@@ -211,8 +232,6 @@ def main():
     try:
         while not sig_received:
             time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Ctrl+C Pressed")
     finally:
         observer.stop()
         observer.join()
