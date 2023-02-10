@@ -10,6 +10,7 @@ import signal
 
 from watchdog.observers import Observer
 from watchdog.events import RegexMatchingEventHandler
+from watchdog.events import FileModifiedEvent
 from multiprocessing.pool import Pool
 
 from nfdump2parquet import convert
@@ -66,7 +67,8 @@ class Handler(RegexMatchingEventHandler):
     def dispatch(self, event):
         pp = pprint.PrettyPrinter(indent=4)
         try:
-            logger.debug(event)
+            if not isinstance(event, FileModifiedEvent):
+                logger.debug(event)
             super().dispatch(event)
         except TypeError as te:
             logger.error('TypeError on dispatch event')
