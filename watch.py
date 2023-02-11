@@ -5,6 +5,7 @@ import time
 import pprint
 import logging
 import argparse
+import configparser
 import textwrap
 import signal
 
@@ -62,8 +63,10 @@ class Handler(RegexMatchingEventHandler):
     # For some reasons the watcher fails after a length of time with
     # TypeError: expected str, bytes or os.PathLike object, not NoneType
     # In Handler.dispatch(event) (watchdog/events.py:476 in dispatch)
+    # Which is this line:
     #  paths.append(os.fsdecode(event.dest_path))
-    # overriding method to catch this exception and logging it...
+    # Overriding the dispatch method to catch this exception and logging it...
+    # So that at least the exception doesn't stop the watchdog
     def dispatch(self, event):
         pp = pprint.PrettyPrinter(indent=4)
         try:
@@ -123,30 +126,26 @@ class CustomConsoleFormatter(logging.Formatter):
 
 ###############################################################################
 # Subroutines
-def get_logger(args):
-    # logging.basicConfig(level=logging.DEBUG,
-    #                     format='%(asctime)s %(name)-20s %(levelname)-8s %(message)s',
-    #                     datefmt='%m-%d %H:%M',
-    #                     filename='watch.log',
-    #                     filemode='w')
+def get_logger(logfile=None, debug=False):
     logger = logging.getLogger(program_name)
 
     # Create handlers
     console_handler = logging.StreamHandler()
     console_formatter = CustomConsoleFormatter()
     console_handler.setFormatter(console_formatter)
-    file_handler = logging.FileHandler(filename='watch.log')
-    file_formatter = logging.Formatter('%(asctime)s  %(levelname)-5s %(filename)-10s %(lineno)d %(funcName)-20s %(message)s')
-    file_handler.setFormatter(file_formatter)
+
+    if logfile:
+        file_handler = logging.FileHandler(filename=logfile)
+        file_formatter = logging.Formatter('%(asctime)s  %(levelname)-5s %(filename)-10s %(lineno)d %(funcName)-20s %(message)s')
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    else:
+        logger.addHandler(console_handler)
 
     logger.setLevel(logging.INFO)
 
-    if args.debug:
+    if debug:
         logger.setLevel(logging.DEBUG)
-
-    # add handlers to the logger
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
 
     return logger
 
@@ -167,14 +166,16 @@ def parser_add_arguments():
                         '''),
         formatter_class=argparse.RawTextHelpFormatter, )
 
-    parser.add_argument("basedir",
+    parser.add_argument("-b",
+                        metavar="basedir",
                         help=textwrap.dedent('''\
                         Base directory to watch for nfdump files
                         '''),
                         action="store",
                         )
 
-    parser.add_argument("parquetdir",
+    parser.add_argument("-p",
+                        metavar="parquetdir",
                         help=textwrap.dedent('''\
                         Base directory where to store parquet files
                         '''),
@@ -188,6 +189,26 @@ def parser_add_arguments():
                         '''),
                         action="store",
                         default=''
+                        )
+
+    parser.add_argument("-c",
+                        metavar='config file',
+                        help=textwrap.dedent('''\
+                        load config from this file. 
+                        If a config file is specified then all
+                        other command line options are ignored
+                        '''),
+                        action="store",
+                        default=''
+                        )
+
+    parser.add_argument("-l",
+                        metavar='log file',
+                        help=textwrap.dedent('''\
+                        Log to the specified file instead
+                        of logging to console.
+                        '''),
+                        action="store",
                         )
 
     parser.add_argument("--debug",
@@ -222,14 +243,82 @@ def main():
 
     pp = pprint.PrettyPrinter(indent=4)
 
+    logger = logging.getLogger(program_name)
+    logfile = None
+
     parser = parser_add_arguments()
     args = parser.parse_args()
-    logger = get_logger(args)
 
-    pool = Pool(2, init_worker)
-    event_handler = Handler(args.parquetdir, pool, flowsrc=args.f)
+    if not args.c:
+        if not args.b:
+            parser.error("No basedir provided. Provide either a basedir and parquetdir or a configuration file")
+            exit(1)
+        if not args.p:
+            parser.error("No parquetdir provided. Provide either a basedir and parquetdir or a configuration file")
+            exit(1)
+
+    watches = list()
+
+    if args.l:
+        logfile = args.l
+
+
+    flowsrc=''
+    if args.f:
+        flowsrc = args.f
+
+    if args.b and not os.path.isdir(args.b):
+        logger.error(f"Directory to watch ({args.b}) not found or not a directory")
+        exit(2)
+
+    if args.p and not os.path.isdir(args.p):
+        logger.error(f"Parquet output directory {args.p} not found or not a directory")
+        exit(2)
+
+    if args.b and args.p:
+        watches.append({'watchdir':args.b,
+                        'outputdir': args.p,
+                        'flowsrc': flowsrc})
+
+    # See if we have a config file
+    if args.c and os.path.isfile(args.c):
+        config = configparser.ConfigParser()
+        config.read(args.c)
+        try:
+            logfile = config['DEFAULT']['logfile']
+        except KeyError:
+            None
+
+        for section in config.sections():
+            try:
+                watchdir = config[section]['watchdir']
+                outputdir = config[section]['outputdir']
+
+                if os.path.isdir(watchdir) and os.path.isdir(outputdir):
+                    watches.append({'watchdir': watchdir,
+                                    'outputdir': outputdir,
+                                    'flowsrc': section})
+                else:
+                    logger.error(f'watchdir or outputdir in section [{section}] of {args.c} does not exist or is not a directory')
+
+            except KeyError:
+                logger.error(f'watchdir or outputdir missing in section [{section}] of {args.c}')
+
+    logger = get_logger(logfile=logfile, debug=args.debug)
+
+    pp.pprint(watches)
+    if len(watches) == 0:
+        logger.error("No directories to watch, exiting.")
+        exit(1)
+
+    pool = Pool(len(watches), init_worker)
     observer = Observer()
-    observer.schedule(event_handler, args.basedir, recursive=True)
+
+    for watch in watches:
+        event_handler = Handler(watch['outputdir'], pool, flowsrc=watch['flowsrc'])
+        observer.schedule(event_handler, watch['watchdir'], recursive=True)
+        logger.info(f"Starting watch on {watch['watchdir']}, writing to {watch['outputdir']} with flowsr='{watch['flowsrc']}'")
+
     observer.start()
     try:
         while not sig_received:
