@@ -205,6 +205,13 @@ def parser_add_arguments():
                         action="store",
                         )
 
+    parser.add_argument("-d",
+                        help=textwrap.dedent('''\
+                        'Deep' coalesce: coalesce per day rather than per hour 
+                        Resulting parquet file for the whole day is stored in hour=23
+                        '''),
+                        action="store_true")
+
     parser.add_argument("--debug",
                         help="show debug output",
                         action="store_true")
@@ -292,38 +299,71 @@ def main():
     # Now go through everything and coalesce each directory.
     # The list of original parquet files is deleted after coalescing
     for datedir, hours in date_hour_dict.items():
-        for hourdir in hours:
+        if not args.d:
+            for hourdir in hours:
 
+                start = time.time()
+
+                # Create a temp file for the combined files
+                tmp_file, tmp_filename = tempfile.mkstemp()
+                os.close(tmp_file)
+
+                coalesce_dir = f'{directory}{datedir}/{hourdir}/'
+                files = sorted(list_files(coalesce_dir, '\d{12}.*\.parquet'))
+                nr_of_files = len(files)
+                if nr_of_files>0:
+                    logger.info(f'Combining {nr_of_files} parquet files in {datedir}/{hourdir}')
+                if files:
+                    datestr = datedir.split('=')[-1]
+                    hourstr = hourdir.split('=')[-1]
+                    coal_file = coalesce_dir+f'{datestr}-{hourstr}:00.parquet'
+                    # Check if coalesced output already exists and add it to the list
+                    if os.path.isfile(coal_file):
+                        files.append(coal_file)
+
+                    coalesce_parquets(files, tmp_filename)
+                    # Remove the original files
+                    for parquet_file in files:
+                        os.remove(parquet_file)
+                    if os.path.isfile(coal_file):
+                        os.remove(coal_file)
+
+                    # And move the temp file to the destination
+                    shutil.move(tmp_filename, coal_file)
+
+                    duration = time.time() - start
+                    logger.debug(f" this took {duration:.2f}s")
+        else:
+            # Coalesce per day
             start = time.time()
+
+            files = []
+            for hourdir in hours:
+                list_dir = f'{directory}{datedir}/{hourdir}/'
+                files += (list_files(list_dir, '.*\.parquet'))
+
+            logger.debug(f'Coalesce whole of {datedir} containing {len(files)} files')
 
             # Create a temp file for the combined files
             tmp_file, tmp_filename = tempfile.mkstemp()
             os.close(tmp_file)
 
-            coalesce_dir = f'{directory}{datedir}/{hourdir}/'
-            files = sorted(list_files(coalesce_dir, '\d{12}.*\.parquet'))
-            nr_of_files = len(files)
-            logger.info(f'Combining {nr_of_files} parquet files in {datedir}/{hourdir}')
-            if files:
-                datestr = datedir.split('=')[-1]
-                hourstr = hourdir.split('=')[-1]
-                coal_file = coalesce_dir+f'{datestr}-{hourstr}:00.parquet'
-                # Check if coalesced output already exists and add it to the list
-                if os.path.isfile(coal_file):
-                    files.append(coal_file)
+            coalesce_parquets(files, tmp_filename)
+            # Remove the original files
+            for parquet_file in files:
+                os.remove(parquet_file)
+            # Remove all hour directories
+            for hourdir in hours:
+                os.rmdir(f'{directory}{datedir}/{hourdir}')
+            # Recreate the hour=23 directory
+            newdir = f'{directory}{datedir}/hour=23'
+            os.mkdir(newdir)
+            # And move the temp file to the destination
+            datestr = datedir.split('=')[-1]
+            shutil.move(tmp_filename, f'{newdir}/{datestr}.parquet')
 
-                coalesce_parquets(files, tmp_filename)
-                # Remove the original files
-                for parquet_file in files:
-                    os.remove(parquet_file)
-                if os.path.isfile(coal_file):
-                    os.remove(coal_file)
-
-                # And move the temp file to the destination
-                shutil.move(tmp_filename, coal_file)
-
-                duration = time.time() - start
-                logger.debug(f" this took {duration:.2f}s")
+            duration = time.time() - start
+            logger.debug(f" this took {duration:.2f}s")
 
     duration = time.time() - overall_start
     logger.info(f"Coalescing took {duration:.2f}s")
