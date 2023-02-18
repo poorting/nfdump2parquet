@@ -172,7 +172,6 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
     }
 
     # The default fields (order) present in the nfcapd files
-    # Can be overridden by providing an nfdump_fields=[] to the constructor
     nf_fields = ['ts', 'te', 'td', 'sa', 'da', 'sp', 'dp', 'pr', 'flg',
                  'fwd', 'stos', 'ipkt', 'ibyt', 'opkt', 'obyt', 'in',
                  'out', 'sas', 'das', 'smk', 'dmk', 'dtos', 'dir',
@@ -182,7 +181,6 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
                  'sl', 'al', 'ra', 'eng', 'exid', 'tr']
 
     # The default fields that should be carried over to the parquet file
-    # Can be overridden by providing a parquet_fields=[] to the constructor
     # exid == exporter id
     parquet_fields = ['ts', 'te', 'td', 'sa', 'da', 'sp', 'dp', 'pr', 'flg',
                       'ipkt', 'ibyt', 'opkt', 'obyt', 'dir', 'ra', 'exid']
@@ -219,7 +217,7 @@ def convert(src_file: str, dst_dir: str, flowsrc = '', queue=None, loglevel=logg
 
     sf = os.path.basename(src_file)
     basename = os.path.basename(src_file)[-12:]
-    hivedir=f'{dst_dir}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
+    hivedir=f'{tmp_dirname}/date={basename[:4]}-{basename[4:6]}-{basename[6:8]}/hour={basename[8:10]}'
     os.makedirs(hivedir, exist_ok=True)
 
     info_return['toCSV'] = duration
