@@ -45,7 +45,7 @@ class Handler(RegexMatchingEventHandler):
 
     def completed_callback(self, result):
         logger.info(f"Completed: {result['src']} in {result['toCSV']+result['toParquet']+result['toCH']:.2f} seconds")
-        logger.info(f"\t to CSV: {result['toCSV']:.2f}s, to Parquet: {result['toCSV']:.2f}s, CH ingest: {result['toCH']:.2f}s")
+        logger.info(f"\t to CSV: {result['toCSV']:.2f}s, to Parquet: {result['toParquet']:.2f}s, CH ingest: {result['toCH']:.2f}s")
 
     def error_callback(self, error):
         logger.error(f"Error: {error}")
