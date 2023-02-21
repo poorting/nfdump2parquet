@@ -34,12 +34,13 @@ sig_received = False
 # class Handler(PatternMatchingEventHandler):
 class Handler(RegexMatchingEventHandler):
 
-    def __init__(self, pool, flowsrc=''):
+    def __init__(self, pool, ch_table='nfsen.flows', flowsrc=''):
         super().__init__(regexes=['.*/nfcapd.\d{12}'],
                          ignore_directories=True)
         # super().__init__(regexes=['.*'],
         #                  ignore_directories=True)
         self.flowsrc = flowsrc
+        self.ch_table = ch_table
         self.pool = pool
 
     def completed_callback(self, result):
@@ -51,7 +52,7 @@ class Handler(RegexMatchingEventHandler):
 
     def __convert(self, source_file):
         logger.info(f"Converting {source_file}")
-        self.pool.apply_async(convert, args=(source_file, 'nfsen.flows', self.flowsrc),
+        self.pool.apply_async(convert, args=(source_file, self.ch_table, self.flowsrc),
                               callback=self.completed_callback,
                               error_callback=self.error_callback)
 
@@ -391,9 +392,11 @@ def main():
         for section in config.sections():
             try:
                 watchdir = config[section]['watchdir']
+                ch_table = config[section]['ch_table']
 
                 if os.path.isdir(watchdir):
                     watches.append({'watchdir': watchdir,
+                                    'ch_table': ch_table,
                                     'flowsrc': section})
                 else:
                     logger.error(f'watchdir in section [{section}] of {args.c} does not exist or is not a directory')
@@ -411,7 +414,7 @@ def main():
     observer = Observer()
 
     for watch in watches:
-        event_handler = Handler(pool, flowsrc=watch['flowsrc'])
+        event_handler = Handler(pool, ch_table= watch['ch_table'], flowsrc=watch['flowsrc'])
         observer.schedule(event_handler, watch['watchdir'], recursive=True)
         logger.info(f"Starting watch on {watch['watchdir']}, with flowsr='{watch['flowsrc']}'")
 
