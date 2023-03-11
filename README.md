@@ -1,35 +1,5 @@
 # Converting nfdump files to Parquet or Clickhouse
 
-
-# Clickhouse
-
-```
-CREATE DATABASE nfsen
-
-CREATE TABLE nfsen.flows
-(
-    `ts` DateTime DEFAULT 0,
-    `te` DateTime DEFAULT 0,
-    `sa` String,
-    `da` String,
-    `sp` UInt16 DEFAULT 0,
-    `dp` UInt16 DEFAULT 0,
-    `pr` Nullable(String),
-    `flg` String,
-    `ipkt` UInt64,
-    `ibyt` UInt64,
-    `ra` String,
-    `flowsrc` String
-)
-ENGINE = MergeTree
-PARTITION BY tuple()
-PRIMARY KEY (ts, te)
-ORDER BY (ts, te, sa, da)
-TTL te + toIntervalDay(90) 
-```
-
-
-# Parquet
 Tooling to convert [nfcapd](https://github.com/phaag/nfdump) files to parquet format.
 By default the output is 'hive partitioned' per date and hour, as shown below.
 The date and hour are taken from the 'te' field (ending time) of each flow record.
@@ -66,19 +36,6 @@ date=2023-02-25
     |-- hour=02
 (...)
 ```
-
-```
-output/
-date=2023-02-25
-|-- hour=00
-|   `-- 2023-02-25-00:00.parquet
-|-- hour=01
-|   `-- 2023-02-25-01:00.parquet
-|-- hour=02
-(...)
-
-```
-
 
 Hives partitioning can be disabled with a -n or --nohives argument to either watch or nfdump2parquet, 
 in which case the date and hour are stored in the parquet file(s) itself.
@@ -119,6 +76,21 @@ options:
   --debug          show debug output
   -V, --version    print version and exit
 ````
+
+### coalesce
+
+```
+output/
+date=2023-02-25
+|-- hour=00
+|   `-- 2023-02-25-00:00.parquet
+|-- hour=01
+|   `-- 2023-02-25-01:00.parquet
+|-- hour=02
+(...)
+
+```
+
 
 ### watch
 
