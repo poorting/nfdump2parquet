@@ -1,40 +1,85 @@
-# nfdump2parquet
+# Converting nfdump files to Parquet or Clickhouse
 
+
+# Clickhouse
+
+```
+CREATE DATABASE nfsen
+
+CREATE TABLE nfsen.flows
+(
+    `ts` DateTime DEFAULT 0,
+    `te` DateTime DEFAULT 0,
+    `sa` String,
+    `da` String,
+    `sp` UInt16 DEFAULT 0,
+    `dp` UInt16 DEFAULT 0,
+    `pr` Nullable(String),
+    `flg` String,
+    `ipkt` UInt64,
+    `ibyt` UInt64,
+    `ra` String,
+    `flowsrc` String
+)
+ENGINE = MergeTree
+PARTITION BY tuple()
+PRIMARY KEY (ts, te)
+ORDER BY (ts, te, sa, da)
+TTL te + toIntervalDay(90) 
+```
+
+
+# Parquet
 Tooling to convert [nfcapd](https://github.com/phaag/nfdump) files to parquet format.
 By default the output is 'hive partitioned' per date and hour, as shown below.
 The date and hour are taken from the 'te' field (ending time) of each flow record.
 
 ```
-date=2022-11-07/
-├── hour=00
-│   ├── 202211070000-chunk-1-part-0.parquet
-│   ├── 202211070005-chunk-1-part-0.parquet
-│   ├── 202211070010-chunk-1-part-0.parquet
-│   ├── 202211070015-chunk-1-part-0.parquet
-│   ├── 202211070020-chunk-1-part-0.parquet
-│   ├── 202211070025-chunk-1-part-0.parquet
-│   ├── 202211070030-chunk-1-part-0.parquet
-│   ├── 202211070035-chunk-1-part-0.parquet
-│   ├── 202211070040-chunk-1-part-0.parquet
-│   ├── 202211070045-chunk-1-part-0.parquet
-│   ├── 202211070050-chunk-1-part-0.parquet
-│   ├── 202211070055-chunk-1-part-0.parquet
-│   └── 202211070100-chunk-1-part-0.parquet
-├── hour=01
-│   ├── 202211070100-chunk-1-part-0.parquet
-│   ├── 202211070105-chunk-1-part-0.parquet
-│   ├── 202211070110-chunk-1-part-0.parquet
-│   ├── 202211070115-chunk-1-part-0.parquet
-│   ├── 202211070120-chunk-1-part-0.parquet
-│   ├── 202211070125-chunk-1-part-0.parquet
-│   ├── 202211070130-chunk-1-part-0.parquet
-│   ├── 202211070135-chunk-1-part-0.parquet
-│   ├── 202211070140-chunk-1-part-0.parquet
-│   ├── 202211070145-chunk-1-part-0.parquet
-│   ├── 202211070150-chunk-1-part-0.parquet
-│   ├── 202211070155-chunk-1-part-0.parquet
-│   └── 202211070200-chunk-1-part-0.parquet
+
+date=2023-02-25
+|-- hour=00
+|   |-- 202302250000.parquet
+|   |-- 202302250005.parquet
+|   |-- 202302250010.parquet
+|   |-- 202302250015.parquet
+|   |-- 202302250020.parquet
+|   |-- 202302250025.parquet
+|   |-- 202302250030.parquet
+|   |-- 202302250035.parquet
+|   |-- 202302250040.parquet
+|   |-- 202302250045.parquet
+|   |-- 202302250050.parquet
+|   `-- 202302250055.parquet
+|-- hour=01
+|   |-- 202302250100.parquet
+|   |-- 202302250105.parquet
+|   |-- 202302250110.parquet
+|   |-- 202302250115.parquet
+|   |-- 202302250120.parquet
+|   |-- 202302250125.parquet
+|   |-- 202302250130.parquet
+|   |-- 202302250135.parquet
+|   |-- 202302250140.parquet
+|   |-- 202302250145.parquet
+|   |-- 202302250150.parquet
+|   `-- 202302250155.parquet
+    |-- hour=02
+(...)
 ```
+
+```
+output/
+date=2023-02-25
+|-- hour=00
+|   `-- 2023-02-25-00:00.parquet
+|-- hour=01
+|   `-- 2023-02-25-01:00.parquet
+|-- hour=02
+(...)
+
+```
+
+
 Hives partitioning can be disabled with a -n or --nohives argument to either watch or nfdump2parquet, 
 in which case the date and hour are stored in the parquet file(s) itself.
 
