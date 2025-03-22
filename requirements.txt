@@ -1,4 +1,0 @@
-duckdb
-pandas
-pyarrow
-watchdog
